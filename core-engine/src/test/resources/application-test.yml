@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:loadsense;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+loadsense:
+  allowed-target-hosts: localhost,127.0.0.1
+  max-active-executions: 2

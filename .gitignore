@@ -1,0 +1,39 @@
+# General
+.DS_Store
+.idea/
+.vscode/
+*.log
+
+# Env
+.env
+.env.local
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+.settings/
+.classpath
+.project
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env/
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.npm/
+
+# Docker
+docker-compose.override.yml
+
+# Generated browser QA artifacts
+output/screenshots/

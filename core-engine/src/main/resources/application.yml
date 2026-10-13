@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: loadsense-core
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/loadsense}
+    username: ${DATABASE_USERNAME:loadsense}
+    password: ${DATABASE_PASSWORD:change-me}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: never
+loadsense:
+  jwt:
+    secret: ${JWT_SECRET:local-development-secret-key-loadsense-12345}
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+  allowed-target-hosts: ${ALLOWED_TARGET_HOSTS:localhost,127.0.0.1,core-engine}
+  max-active-executions: ${MAX_ACTIVE_EXECUTIONS:2}
+  demo-enabled: ${DEMO_ENABLED:true}
