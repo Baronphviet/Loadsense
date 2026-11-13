@@ -18,6 +18,9 @@ public class TestConfig {
     @Column(name="duration_seconds", nullable=false) public int durationSeconds;
     @Column(name="requests_per_second", nullable=false) public int requestsPerSecond;
     @Column(name="timeout_ms", nullable=false) public int timeoutMs;
+    @Column(name="load_profile", nullable=false, length=24) public String loadProfile = "CONSTANT";
+    @Column(name="ramp_up_seconds", nullable=false) public int rampUpSeconds = 0;
+    @Column(name="steps_json", columnDefinition="TEXT") public String stepsJson;
     @Column(name="created_at", nullable=false) public Instant createdAt = Instant.now();
     @Column(name="updated_at", nullable=false) public Instant updatedAt = Instant.now();
 }

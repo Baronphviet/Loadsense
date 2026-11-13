@@ -1,11 +1,11 @@
 # ⚡ LoadSense
 
-> **Tích hợp NVIDIA AI:** LoadSense có thể dùng NVIDIA Nemotron qua AI Service cho Prompt-to-Test, Smart Mock-Data và AI Explainer. Các mô tả về AI bị hoãn trong phần lịch sử bên dưới phản ánh trạng thái trước khi tích hợp NVIDIA; Local AI/Ollama vẫn chưa được triển khai.
+> **Tích hợp AI bên thứ ba (NVIDIA Cloud AI / OpenAI-compatible):** LoadSense sử dụng **API LLM bên thứ ba tương thích chuẩn OpenAI** (mặc định **NVIDIA Cloud AI — NVIDIA Nemotron**, hỗ trợ cấu hình trung lập qua `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_TIMEOUT_SECONDS` hoặc fallback `NVIDIA_*`) cho Prompt-to-Test, Smart Mock-Data và AI Explainer (bao gồm Auto AI Explainer và phân tích điểm nghẽn/khuyến nghị). Phương án Local LLM / Ollama đã được loại bỏ theo quyết định triển khai hiện tại.
 
-### Bật NVIDIA AI
+### Bật AI Service
 
-1. Tạo API key trên [NVIDIA Build](https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b).
-2. Sao chép `.env.example` thành `.env`, đặt `NVIDIA_API_KEY` và một giá trị ngẫu nhiên riêng cho `AI_SERVICE_TOKEN`. Không commit các giá trị này.
+1. Tạo API key trên [NVIDIA Build](https://build.nvidia.com/nvidia/nemotron-3-ultra-550b-a55b) (hoặc nhà cung cấp OpenAI-compatible bất kỳ như OpenAI, OpenRouter, Groq...).
+2. Sao chép `.env.example` thành `.env`, đặt `NVIDIA_API_KEY` (hoặc `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`) và một giá trị ngẫu nhiên riêng cho `AI_SERVICE_TOKEN`. Không commit các giá trị này.
 3. Khởi chạy `docker compose --env-file .env -f infra/docker-compose.yml --profile ai up --build -d`.
 4. Trong AI Workspace, nhập prompt để tạo cấu hình và duyệt trước khi lưu. Với cấu hình có body, mở **Dữ liệu** để nhập schema, sinh payload, duyệt và lưu. Sau một lần chạy, mở báo cáo và bấm **Phân tích bằng AI**.
 
@@ -17,7 +17,7 @@ Prompt và schema nhập vào được gửi tới NVIDIA: không nhập token, 
 
 Nền tảng kiểm thử hiệu năng Web API theo mô hình **Zero-Code**, kiến trúc **Boundary – Control – Entity (BCE)**. Người dùng cấu hình request bằng biểu mẫu, chạy engine đa luồng, theo dõi Chart.js theo thời gian thực và xem lại lịch sử/báo cáo.
 
-Triển khai bám theo đề cương *Phát triển Hệ thống kiểm thử hiệu năng Web API tích hợp AI*, nhóm 6. **LocalAI/Ollama được hoãn theo phạm vi hiện tại**: có giao diện và schema tích hợp; không gọi model, không giả lập kết quả AI.
+Triển khai bám theo đề cương *Phát triển Hệ thống kiểm thử hiệu năng Web API tích hợp AI*, nhóm 6. **NVIDIA Cloud AI** là nhà cung cấp AI chính thức (Local LLM/Ollama đã bị loại bỏ theo chỉ đạo triển khai).
 
 ## Mục tiêu và phạm vi theo đề cương
 
@@ -25,12 +25,12 @@ Triển khai bám theo đề cương *Phát triển Hệ thống kiểm thử hi
 
 | Luồng trong đề cương | Mục tiêu cuối cùng | Trạng thái hiện tại |
 | --- | --- | --- |
-| **Prompt-to-Test** | Chuyển yêu cầu ngôn ngữ tự nhiên thành cấu hình HTTP để người dùng duyệt | Có AI Workspace và contract; chưa phân tích prompt. Tạo cấu hình thủ công đã hoạt động |
-| **Smart Mock-Data** | Sinh dữ liệu giả lập hợp lệ từ JSON Schema/mẫu bằng Local LLM | Lưu/chọn/xoay vòng payload thủ công đã hoạt động; chưa sinh dữ liệu bằng AI hoặc kiểm định payload theo schema |
-| **Execution & Monitoring** | Điều phối đa luồng, đo và giám sát hiệu năng realtime, dừng test thủ công | Đã triển khai luồng chức năng và kiểm thử; còn benchmark dài hạn và đo độ trễ dashboard |
-| **AI Explainer** | Phân tích số liệu/log sau test, xác định điểm nghẽn và đề xuất khắc phục | Có contract và khu vực giao diện; chưa phân tích bằng AI. Báo cáo số liệu theo ngưỡng đã hoạt động |
+| **Prompt-to-Test** | Chuyển yêu cầu ngôn ngữ tự nhiên thành cấu hình HTTP để người dùng duyệt | Đã triển khai với NVIDIA Cloud AI, JSON Schema output và bước duyệt/sửa trước khi lưu |
+| **Smart Mock-Data** | Sinh dữ liệu giả lập hợp lệ từ JSON Schema/mẫu | Đã triển khai sinh payload qua NVIDIA Cloud AI, kiểm định JSON Schema ở Core và xoay vòng payload khi chạy |
+| **Execution & Monitoring** | Điều phối đa luồng, đo và giám sát hiệu năng realtime, dừng test thủ công | Đã triển khai engine đa luồng, `errorBreakdown`, Early Anomaly Detection (tùy chọn tự động dừng), STOMP + polling dự phòng và `scripts/benchmark.mjs` |
+| **AI Explainer** | Phân tích số liệu/log sau test, xác định điểm nghẽn và đề xuất khắc phục | Đã triển khai Auto AI Explainer (tự động chạy nền khi bật trong Cài đặt) và phân tích thủ công qua NVIDIA Cloud AI |
 
-Đăng ký/đăng nhập, quản lý cấu hình, dữ liệu, lịch sử và báo cáo là các UC hỗ trợ bốn luồng trên. Phiên bản hiện tại hoàn thành luồng **kiểm thử thủ công không cần viết script**; chưa hoàn thành toàn bộ hệ thống tích hợp AI như kết quả cuối cùng của đề cương. LocalAI vẫn nằm trong kế hoạch, nhưng được hoãn theo phạm vi triển khai hiện tại.
+Đăng ký/đăng nhập, quản lý cấu hình, dữ liệu, cài đặt người dùng (`/api/settings`), lịch sử và báo cáo là các UC hỗ trợ bốn luồng trên.
 
 ## Tiến độ theo Use Case
 
@@ -38,14 +38,15 @@ Mã UC dưới đây là mã theo dõi của dự án, không phải số thứ 
 
 | Mã UC | Use Case | Điểm đã làm được | Phần còn thiếu theo mục tiêu đề cương |
 | --- | --- | --- | --- |
-| UC-01 | Đăng ký / đăng nhập | Tạo tài khoản, BCrypt, JWT 24 giờ, đăng xuất, bảo vệ API và dữ liệu theo chủ sở hữu | Không còn thiếu chức năng cơ bản của UC trong phạm vi hiện tại |
-| UC-02 | Tạo và quản lý cấu hình test | Biểu mẫu URL/method/headers/body/VUs/duration/RPS/timeout; CRUD, validation và tái sử dụng | Tạo cấu hình từ prompt thuộc UC-AI-01, chưa triển khai |
-| UC-03 | Quản lý dữ liệu mock thủ công | Lưu mảng JSON object, lưu schema tham chiếu, chọn dataset và xoay vòng payload khi chạy | Kiểm định từng payload theo JSON Schema; sinh dữ liệu bằng AI thuộc UC-AI-02 |
-| UC-04 | Execution & Monitoring | Engine đa luồng, snapshot, chạy/dừng, trạng thái, metrics, Chart.js, STOMP và polling dự phòng | Benchmark độ ổn định vài trăm luồng, đo độ trễ dashboard trên môi trường mục tiêu |
-| UC-05 | Xem lịch sử / báo cáo | Lưu execution/metrics/report, tìm và lọc 100 lần gần nhất, xem chi tiết, xuất CSV | Phân tích nguyên nhân và khuyến nghị bằng AI thuộc UC-AI-03 |
-| UC-AI-01 | Prompt-to-Test | Giao diện nhập prompt, Pydantic input/output và endpoint tích hợp được chuẩn bị | Ollama adapter, suy luận prompt, output JSON Schema, hiển thị đề xuất và duyệt/lưu cấu hình |
-| UC-AI-02 | Smart Mock-Data | Contract schema/count/payloads; nền tảng lưu trữ và thực thi dataset có trong UC-03 | Sinh payload bằng model, kiểm định schema, xem trước và duyệt/lưu dữ liệu sinh ra |
-| UC-AI-03 | AI Explainer | Contract metrics/summary/bottlenecks/recommendations; report và metrics có trong UC-05 | Gọi model sau test, phân tích điểm nghẽn, lưu và hiển thị khuyến nghị AI |
+| UC-01 | Đăng ký / đăng nhập & Cài đặt | Tạo tài khoản, BCrypt, JWT 24 giờ, chống brute-force (`429 LOGIN_RATE_LIMITED` sau 5 lần sai/60s), bảo vệ API/STOMP và `GET/PUT /api/settings` | Đã hoàn thành |
+| UC-02 | Tạo và quản lý cấu hình test | Biểu mẫu URL/method/headers/body/VUs/duration/RPS/timeout, `loadProfile` (`CONSTANT`/`RAMP_UP`/`STEP_STRESS`/`SPIKE`), Scenario Chaining (0–3 bước `{{var}}`) | Đã hoàn thành |
+| UC-03 | Quản lý dữ liệu mock & kiểm định schema | Lưu mảng JSON object, lưu schema tham chiếu, kiểm định payload theo JSON Schema, chọn dataset và xoay vòng payload | Đã hoàn thành |
+| UC-04 | Execution & Monitoring | Engine đa luồng, `p99`/`max`/`intervalP95Ms`/`intervalErrorRate`, `errorBreakdown`, Early Anomaly Detection theo nhịp, `stopReason`, STOMP + polling | Đã hoàn thành & benchmark 50/100/300 VUs |
+| UC-05 | Xem lịch sử / báo cáo | Lưu execution/metrics/report, tìm và lọc 100 lần gần nhất, so sánh **Baseline vs Current**, xuất CSV đầy đủ cột mới | Đã hoàn thành |
+| UC-06 | Auto Test Suite (kiểu TestSprite) | Deep BFS Crawler 3 tầng (`50/100/200 UC`), Form ↔ YAML, **Agent Action View** trực quan (zoom/pan, duyệt nhánh theo nhịp `1–4s`, Lightbox Web), chuyển sang Stress Lab | Đã hoàn thành |
+| UC-AI-01 | Prompt-to-Test | AI Workspace, Pydantic input/output, gọi API LLM bên thứ ba ép JSON Schema, giới hạn 10 lượt/phút/user, duyệt trước khi lưu | Đã hoàn thành |
+| UC-AI-02 | Smart Mock-Data | Sinh payload từ JSON Schema qua API LLM bên thứ ba, kiểm định lại ở Core, xem trước và lưu dataset | Đã hoàn thành |
+| UC-AI-03 | AI Explainer & Suite AI Summary | Phân tích số liệu hiệu năng (`bottlenecks`, `recommendations`, `findings`), Auto AI Explainer nền, và **AI Tóm tắt Preview · Error · Cause · Fix** cho từng Test Case | Đã hoàn thành |
 
 ### UC-01 — Đăng ký / đăng nhập
 
@@ -59,8 +60,8 @@ Mã UC dưới đây là mã theo dõi của dự án, không phải số thứ 
 ### UC-02 — Tạo và quản lý cấu hình test
 
 - [x] Tạo/xem/sửa/xóa cấu hình bằng biểu mẫu, không cần viết script JMeter/k6.
-- [x] Cấu hình URL, HTTP method, headers, body, virtual users, duration, giới hạn RPS và timeout.
-- [x] Validate DTO, exact host allowlist, URI, header và kích thước body ở backend.
+- [x] Cấu hình URL, HTTP method, headers, body, virtual users, duration, giới hạn RPS, timeout, **kiểu tải (`loadProfile`: `CONSTANT` / `RAMP_UP` / `STEP_STRESS` / `SPIKE`)**, `rampUpSeconds` và **Scenario Chaining tối giản (0–3 bước trích xuất biến JSON `{{var}}`)**.
+- [x] Validate DTO, exact host allowlist (bao gồm multi-host trong chain và chặn `{{...}}` ở scheme/authority), URI, header và kích thước body ở backend.
 - [x] Tái sử dụng cấu hình; giữ snapshot riêng cho mỗi execution để lịch sử không đổi khi sửa cấu hình nguồn.
 - [x] Chặn xóa cấu hình đã có execution để bảo toàn lịch sử.
 
@@ -72,9 +73,7 @@ Mã UC dưới đây là mã theo dõi của dự án, không phải số thứ 
 - [x] Lưu JSON Schema tham chiếu dưới dạng JSON object.
 - [x] Chọn dataset khi bắt đầu test; engine xoay vòng payload giữa các request.
 - [x] Kiểm tra định dạng JSON, số lượng/kích thước payload và quyền sở hữu dataset.
-- [ ] Kiểm định từng payload theo JSON Schema trước khi lưu/chạy.
-
-**Giới hạn:** kiểm tra JSON object không đồng nghĩa với kiểm định JSON Schema. Payload hiện do người dùng nhập; chưa có Smart Mock-Data bằng AI.
+- [x] Kiểm định từng payload theo JSON Schema trước khi lưu/chạy.
 
 ### UC-04 — Execution & Monitoring
 
@@ -82,13 +81,11 @@ Mã UC dưới đây là mã theo dõi của dự án, không phải số thứ 
 - [x] Điều phối `ExecutorService`, bounded worker pool, timeout/deadline và giới hạn RPS dùng chung giữa các VU.
 - [x] Quản lý vòng đời `PENDING → RUNNING → COMPLETED / FAILED / STOPPED`.
 - [x] Dừng idempotent, interrupt/cleanup worker; đánh dấu execution gián đoạn là FAILED khi engine khởi động lại.
-- [x] Tổng hợp request count, throughput, average latency, p50/p95, error rate và active users.
-- [x] Lưu metric khoảng mỗi giây; dashboard Chart.js nhận private STOMP event, có REST polling 2 giây dự phòng.
+- [x] Tổng hợp request count, throughput, average latency, `p50`/`p95`/`p99`/`max`, `intervalP95Ms`, `intervalErrorRate`, error rate, `errorBreakdown` (`http4xx`, `http429`, `http5xx`, `timeout`, `network`), `stopReason` và active users.
+- [x] **Early Anomaly Detection:** cảnh báo sớm dựa trên chỉ số nhịp 1 giây (`intervalErrorRate`, `intervalP95Ms`) theo ngưỡng `/api/settings`, kèm tùy chọn tự động dừng bảo vệ (`autoStopOnAnomaly` sau 3 chu kỳ, `stopReason = ANOMALY`).
+- [x] Lưu metric khoảng mỗi giây; dashboard Chart.js (`p50`, `p95`, `p99`, `Interval p95`, `Error %`) nhận private STOMP event, có REST incremental polling (`afterElapsed`) 2 giây dự phòng.
 - [x] Kiểm thử chức năng với 300 VUs, rate cap, timeout/lỗi HTTP và dừng test.
-- [ ] Benchmark độ ổn định dài hạn với vài trăm luồng và target độc lập.
-- [ ] Đo độ trễ từ engine đến dashboard để đánh giá mục tiêu dưới 1–2 giây trong PDF.
-
-**Giới hạn:** test chức năng 300 VUs chưa chứng minh khả năng chịu tải ổn định dài hạn. Chu kỳ lấy mẫu một giây chưa đủ để khẳng định SLA cập nhật dashboard.
+- [x] Script benchmark `scripts/benchmark.mjs` đo độ ổn định 50/100/300 VUs và độ trễ cập nhật realtime (`receivedAt - sampleTime`) theo SLA `< 1–2s`.
 
 ### UC-05 — Xem lịch sử và báo cáo
 
@@ -96,81 +93,52 @@ Mã UC dưới đây là mã theo dõi của dự án, không phải số thứ 
 - [x] Hiển thị 100 execution gần nhất thuộc tài khoản; tìm theo tên/URL và lọc trạng thái.
 - [x] Xem chi tiết trạng thái, snapshot metadata, biểu đồ và số liệu tổng hợp.
 - [x] Tạo report khi execution kết thúc; xuất CSV chứa số liệu đo.
-- [x] Đánh giá theo ngưỡng cố định: error rate ≥ 5% hoặc p95 ≥ 1.000 ms.
-
-**Giới hạn:** report hiện mô tả số liệu và ngưỡng. Chưa xác định nguyên nhân điểm nghẽn hay đề xuất khắc phục bằng AI; phần đó thuộc UC-AI-03.
-
 ### UC-AI-01 — Prompt-to-Test
 
-- [x] Chuẩn bị AI Workspace với ô nhập prompt và trạng thái LocalAI chưa bật.
-- [x] Chuẩn bị Pydantic contract cho prompt, cấu hình đề xuất, warnings và yêu cầu người dùng duyệt.
-- [x] Chuẩn bị Core `/api/ai/parse-prompt` và FastAPI `/parse-prompt`; hiện trả `501 AI_DEFERRED`.
-- [ ] Kết nối Ollama qua adapter, chọn model và cấu hình keep-alive.
-- [ ] Chuyển prompt thành cấu hình, ép output model theo JSON Schema và xử lý output không hợp lệ.
-- [ ] Hiển thị cấu hình đề xuất cho người dùng sửa/duyệt; Core revalidate rồi lưu vào TestConfig trước khi chạy.
-
-**Trạng thái:** mới có khung giao diện/API; nút gửi AI bị vô hiệu hóa, nội dung nhập chưa được gửi hoặc lưu. UC chưa thực hiện được chuyển đổi prompt thành test.
+- [x] AI Workspace với ô nhập prompt và gọi NVIDIA Cloud AI qua Core `/api/ai/parse-prompt` và FastAPI `/parse-prompt`.
+- [x] Ép output model theo JSON Schema (`response_format`), xử lý lỗi dịch vụ/giới hạn lượt gọi (`AI_AUTH_ERROR` map về 503).
+- [x] Hiển thị cấu hình đề xuất và warnings cho người dùng sửa/duyệt; Core revalidate rồi lưu vào `TestConfig` trước khi chạy.
 
 ### UC-AI-02 — Smart Mock-Data
 
-- [x] Chuẩn bị Pydantic contract nhận schema/số lượng và trả danh sách payload.
-- [x] Chuẩn bị Core `/api/ai/generate-mockdata` và FastAPI `/generate-mockdata`; hiện trả `501 AI_DEFERRED`.
-- [x] Có nền tảng MockDataSet và cơ chế dùng dữ liệu khi chạy từ UC-03.
-- [ ] Sinh dữ liệu từ schema/mẫu bằng Local LLM và ép định dạng đầu ra.
-- [ ] Kiểm định payload theo schema, xử lý dữ liệu sai và cho người dùng xem trước/duyệt.
-- [ ] Lưu dữ liệu đã duyệt để sử dụng lại trong execution.
+- [x] Core `/api/ai/generate-mockdata` và FastAPI `/generate-mockdata` sinh payload từ JSON Schema qua NVIDIA Cloud AI.
+- [x] Kiểm định từng payload theo JSON Schema ở Core trước khi lưu vào `MockDataSet`.
+- [x] Cho phép xem trước, duyệt và chọn bộ dữ liệu khi chạy execution (`mockDataSetId` được lưu vết trên `TestExecution`).
 
-**Trạng thái:** nền tảng dataset đã hoạt động, nhưng UC sinh dữ liệu thông minh bằng AI chưa hoạt động.
+### UC-AI-03 — AI Explainer & Auto AI Explainer
 
-### UC-AI-03 — AI Explainer
+- [x] Core `/api/ai/analyze-log` và FastAPI `/analyze-log` phân tích số liệu tổng hợp, `errorBreakdown`, `anomalyWarning` và tối đa 60 mẫu đo qua NVIDIA Cloud AI.
+- [x] Hỗ trợ **Auto AI Explainer**: tự động chạy nền sau khi execution kết thúc (cấu hình mặc định trong `/api/settings` hoặc ghi đè trên mỗi lần chạy qua `autoAiAnalyze`), cập nhật trạng thái `PENDING → COMPLETED / INSUFFICIENT_DATA / FAILED` và phát sự kiện STOMP.
+- [x] Lưu `ai_model`, `ai_analyzed_at`, tóm tắt, bottlenecks và recommendations gắn với `TestReport`.
 
-- [x] Chuẩn bị Pydantic contract cho metrics và kết quả summary/bottlenecks/recommendations.
-- [x] Chuẩn bị Core `/api/ai/analyze-log` và FastAPI `/analyze-log`; hiện trả `501 AI_DEFERRED`.
-- [x] Có số liệu tổng hợp, TestReport và khu vực hiển thị báo cáo từ UC-05.
-- [ ] Gửi số liệu/log đã chuẩn hóa, loại thông tin nhạy cảm đến AI Service sau khi test kết thúc.
-- [ ] Phân tích điểm nghẽn và đề xuất hướng khắc phục bằng Ollama.
-- [ ] Lưu/hiển thị báo cáo AI và đánh giá chất lượng kết quả trên bộ dữ liệu thử nghiệm.
+## Kiến trúc và nền tảng đã triển khai
 
-**Trạng thái:** chưa chạy phân tích AI. Không dùng báo cáo theo ngưỡng hiện tại làm bằng chứng hoàn thành AI Explainer.
-
-## Kiến trúc và nền tảng đã làm được
-
-| Hạng mục theo PDF | Hiện trạng | Công việc tiếp theo |
+| Hạng mục theo PDF | Hiện trạng | Ghi chú |
 | --- | --- | --- |
-| Kiến trúc BCE; các gói controller/service/client/repository/entity/dto/config | Đã tổ chức mã nguồn và tài liệu kiến trúc | Bổ sung adapter AI và cập nhật thiết kế khi tích hợp các UC-AI |
-| Use Case, lớp Entity và sơ đồ gói | Đã có sơ đồ và đặc tả trong `docs/architecture.md` | Hoàn thiện đặc tả chi tiết các nhánh thành công/lỗi của luồng AI khi triển khai |
-| Sáu entity User, TestConfig, MockDataSet, TestExecution, TestMetric, TestReport | Đã có bảng, FK/index, JPA và migration PostgreSQL; User ánh xạ bằng UserAccount | Bổ sung nội dung báo cáo AI khi UC-AI-03 được triển khai |
-| Core Engine Java / Spring Boot | REST, JWT, load engine, persistence và STOMP đã hoạt động | Tích hợp AI Service, benchmark và đánh giá độ ổn định |
-| Frontend HTML/JS + Chart.js | Dùng React để tổ chức HTML/JS; auth, builder, dashboard, history/report và khung nhập prompt đã có | Bật luồng duyệt cấu hình/dữ liệu AI và hiển thị phân tích AI |
-| AI Service Python / FastAPI / Pydantic | Có schema, health và endpoints deferred | Ollama client, JSON Schema output, keep-alive, model và xử lý lỗi |
-| Triển khai cục bộ | Docker Compose cho PostgreSQL/Core/frontend, nginx proxy; AI contract là profile tùy chọn | Kiểm chứng toàn bộ bốn luồng khi LocalAI được bật |
-| Kiểm thử, đánh giá và báo cáo đề tài | Có test backend/browser/contracts và tài liệu kết quả | Benchmark, đánh giá model, hoàn thiện khảo sát/nghiên cứu và báo cáo theo chương mục trong PDF |
+| Kiến trúc BCE; các gói controller/service/client/repository/entity/dto/config | Đã tổ chức mã nguồn và tài liệu kiến trúc | Đã tích hợp `AiClient` và cập nhật đặc tả trong `docs/architecture.md` |
+| Use Case, lớp Entity và sơ đồ gói | Đã có sơ đồ và đặc tả trong `docs/architecture.md` | Bao gồm `V5` và `V6` migration cho settings, `load_profile`, `steps_json`, `p99`/`max`/`interval_*`, `stop_reason` |
+| Sáu entity chính + TestSuite | Đã có bảng, FK/index, JPA và Flyway V1–V8 trên PostgreSQL | Đã bổ sung `V7__auto_test_suites.sql` và `V8__fix_delete_constraints.sql` |
+| Core Engine Java / Spring Boot | REST, JWT, brute-force lock, AI rate limit, load engine, chaining, Early Anomaly, Auto AI Explainer, Auto Test Suite, STOMP | Hỗ trợ `GET/PUT /api/settings`, `afterElapsed`, `PacedRateLimiter` 4 profiles, `/api/suites/**` |
+| Frontend HTML/JS + Chart.js | React; auth, Auto Test Suite (`AgentActionGraph` + Lightbox + Drawer AI), builder (4 profile + chaining), Cài đặt, Chart `Interval p95`/`p99`, History ComparePanel, AI Workspace | Hiển thị đầy đủ hoạt ảnh chờ động (`activity-loader-card`), `previewSummary`, `bottlenecks`, `recommendations`, `findings` |
+| AI Service Python / FastAPI / Pydantic | Adapter trung lập (`LLM_*` / `NVIDIA_*`), retry/backoff `429/502/503/504`, `detect_bottlenecks_and_recommendations`, `/explain-suite-case` | Local LLM/Ollama đã bị loại bỏ khỏi phạm vi |
+| Triển khai cục bộ | Docker Compose cho PostgreSQL/Core/frontend, nginx proxy; profile `ai` cho AI Service | Chạy được toàn bộ luồng chức năng và AI khi có `LLM_API_KEY` hoặc `NVIDIA_API_KEY` |
+| Kiểm thử, đánh giá và benchmark | Unit/integration tests (31 Core, 25 AI, 4 Frontend), Black-box matrix và `scripts/benchmark.mjs` | Đã benchmark thực nghiệm 50/100/300 VUs, STOMP `p95UpdateMs = 16–27 ms` |
 
-## Kế hoạch triển khai tiếp theo
-
-Các bước dưới đây là backlog theo đề cương, chưa phải cam kết thời hạn. **LocalAI không được triển khai trong giai đoạn hiện tại**; phần tích hợp model bắt đầu ở giai đoạn sau.
-
-| Giai đoạn | Công việc dự kiến | UC liên quan | Điều kiện hoàn thành |
-| --- | --- | --- | --- |
-| 1. Hoàn thiện và đánh giá luồng không AI | Kiểm định JSON Schema của payload; benchmark vài trăm VUs với target độc lập; đo độ trễ dashboard; bổ sung kết quả kiểm thử/báo cáo | UC-03, UC-04, UC-05 | Payload sai schema bị từ chối; có số liệu benchmark và đo độ trễ thực tế, không chỉ test chức năng |
-| 2. Nền tảng LocalAI | Chọn/đánh giá model, xây `ollama_client`/adapter, keep-alive, output JSON Schema, kiểm tra lỗi và nối Core ↔ FastAPI | UC-AI-01/02/03 | Gọi model cục bộ có input/output hợp lệ, xử lý được model không sẵn sàng/output sai; không phụ thuộc AI cloud |
-| 3. Prompt-to-Test | Phân tích prompt, hiển thị/sửa/duyệt cấu hình đề xuất, Core kiểm tra và lưu | UC-AI-01 → UC-02 → UC-04 | Người dùng tạo được test từ ngôn ngữ tự nhiên và chỉ chạy sau khi duyệt cấu hình |
-| 4. Smart Mock-Data | Sinh payload theo schema/mẫu, kiểm định, xem trước/duyệt và lưu dataset | UC-AI-02 → UC-03 → UC-04 | Dữ liệu sinh ra hợp lệ và được execution sử dụng sau khi người dùng duyệt |
-| 5. AI Explainer | Phân tích số liệu sau test, lưu/hiển thị bottleneck và recommendation; đánh giá chất lượng phân tích | UC-04 → UC-AI-03 → UC-05 | Có báo cáo AI gắn với execution, phân biệt với report theo ngưỡng và có bằng chứng đánh giá |
-| 6. Tích hợp và hoàn thiện đề tài | Black-box testing toàn hệ thống, đánh giá đa luồng và model; cập nhật UML, hướng dẫn triển khai và báo cáo | Toàn bộ UC | Chạy được đầy đủ bốn luồng nghiệp vụ và có kết quả đánh giá theo đề cương |
-
-**Hướng mở rộng nếu còn thời gian theo PDF:** Scenario Chaining, Early Anomaly Detection; chế độ AI lai Local/Cloud là hướng phát triển trong phần kết luận, không thuộc tiêu chí hoàn thành phiên bản LocalAI cục bộ. Load phân tán, phân trang lịch sử đầy đủ và retention dữ liệu là các đề xuất kỹ thuật bổ sung, chưa được đưa thành yêu cầu bắt buộc của đề cương.
+**Hướng mở rộng tiếp theo nếu cần:** Distributed workers, Scenario Chaining có rẽ nhánh/vòng lặp điều kiện, phân trang lịch sử đầy đủ sau 100 execution và retention dữ liệu. Local LLM/Ollama không còn nằm trong kế hoạch triển khai.
 
 ## Kết quả đã kiểm chứng
 
-Theo [báo cáo kiểm chứng ngày 14/10/2026](docs/validation.md):
+Theo [báo cáo kiểm chứng](docs/validation.md):
 
-- 14 test backend qua trên H2 và PostgreSQL; Flyway V1/V2 và Hibernate schema validation qua trên PostgreSQL.
-- 2 test contract AI qua; chỉ kiểm tra schema và trạng thái deferred, không kiểm tra suy luận model.
-- Frontend lint/build, Docker build và stack Compose đã chạy thành công.
-- Browser E2E qua các luồng đăng ký, cấu hình, xác nhận target, metrics WebSocket, polling dự phòng, dừng, dataset thủ công, history/report/CSV, reload và responsive.
-
-Các kết quả này chứng minh phần chức năng đã nêu trong UC-01 đến UC-05 và khung tích hợp AI. Chưa có benchmark dài hạn, phép đo SLA dưới 1–2 giây hoặc kết quả đánh giá model để nghiệm thu toàn bộ mục tiêu thực nghiệm trong PDF.
+- **PostgreSQL 15 + Flyway V1–V6:** Đã kiểm chứng trực tiếp chạy `core-0.0.1-SNAPSHOT.jar` với `postgres:15-alpine` (`ddl-auto=validate`), 6/6 migration `V1`–`V6` thành công (`success = t`).
+- **Core Engine (31/31 tests pass):** Unit & integration tests (`CoreFlowTest`: 22, `MetricAccumulatorTest`: 5, `AiAnalysisInputTest`: 2, `AiClientTest`: 2).
+- **AI Service (25/25 tests pass):** `unittest` kiểm tra contract, `detect_bottlenecks_and_recommendations`, `/explain-suite-case`, retry/backoff và adapter `LLM_*`/`NVIDIA_*`.
+- **Frontend:** `node --test frontend/src/reportModel.test.js` (4/4 pass), `pnpm --dir frontend lint` (0 errors), `pnpm --dir frontend build` (65 modules).
+- **Benchmark thực nghiệm 50 / 100 / 300 VUs (`scripts/benchmark.mjs`, target echo 15ms độc lập, `RPS_LIMIT=500`, SLA `< 2000 ms`):**
+  - **50 VUs:** `4.955 req`, lỗi `0%`, `495,36 req/s`, `p50=16 ms`, `p95=17 ms`, `p99=43 ms`, STOMP `avg=17 ms`, `p95=27 ms`.
+  - **100 VUs:** `4.988 req`, lỗi `0,02%`, `498,74 req/s`, `p50=16 ms`, `p95=16 ms`, `p99=17 ms`, STOMP `avg=13 ms`, `p95=19 ms`.
+  - **300 VUs:** `4.992 req`, lỗi `0,06%`, `499,13 req/s`, `p50=15 ms`, `p95=16 ms`, `p99=16 ms`, STOMP `avg=11 ms`, `p95=16 ms`.
+- **Browser E2E (baseline 14/10/2026):** Playwright đã pass toàn bộ luồng cơ bản ở mốc baseline (chưa chạy lại trên UI đợt V6).
 
 ## Chạy bằng Docker Compose
 
@@ -191,8 +159,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 `.env.example` chứa giá trị phục vụ phát triển. Trước khi dùng ngoài môi trường demo, đặt JWT secret riêng (tối thiểu 32 byte), mật khẩu DB riêng, allowlist host chính xác, origins chính xác và `DEMO_ENABLED=false`.
 
 ```bash
-# Khung FastAPI tùy chọn, không khởi động Ollama:
-docker compose --env-file .env -f infra/docker-compose.yml --profile ai-contract up -d ai-service
+# Chạy kèm AI Service (NVIDIA Cloud AI):
+docker compose --env-file .env -f infra/docker-compose.yml --profile ai up --build -d ai-service
 # Xem logs / dừng, giữ dữ liệu:
 docker compose --env-file .env -f infra/docker-compose.yml logs -f core-engine
 docker compose --env-file .env -f infra/docker-compose.yml down
@@ -230,13 +198,20 @@ uvicorn app.main:app --reload
 # API schemas: http://localhost:8000/docs
 ```
 
-## Kiểm thử
+## Kiểm thử & Benchmark
 
 ```bash
 mvn -B -f core-engine/pom.xml test
-cd frontend
-pnpm lint
-pnpm build
+node --test frontend/src/reportModel.test.js
+pnpm --dir frontend lint
+pnpm --dir frontend build
+cd ai-service && python3 -m unittest discover -s tests -v
+```
+
+Chạy benchmark tải (50, 100, 300 VUs) và đo SLA độ trễ cập nhật STOMP (`receivedAt - sampleTime`) khi Core Engine đang chạy:
+
+```bash
+BASE_URL=http://localhost:8080 node scripts/benchmark.mjs
 ```
 
 Backend tests dùng H2 riêng, HTTP target nội bộ và WebSocket thật; kiểm tra JWT/ownership, validation, snapshot, chạy/dừng, lỗi/timeout, redirect, dữ liệu mock, admission limit, 300 VUs và rate limit dùng chung. H2 tests không thay thế việc xác minh Flyway trên PostgreSQL; có thể chạy suite trực tiếp với PostgreSQL:
@@ -273,7 +248,7 @@ flowchart LR
   Control --> Entity[Entity / JPA repositories]
   Entity --> DB[(PostgreSQL + Flyway)]
   Control -->|Java HttpClient / bounded workers| Target[API đích được cho phép]
-  Control -->|Contract, chưa kết nối| AI[FastAPI schemas / LocalAI hoãn]
+  Control -->|NVIDIA Cloud AI / FastAPI| AI[AI Service]
   Control -->|Metrics mỗi giây| WS
 ```
 
@@ -286,17 +261,17 @@ React chỉ tổ chức HTML/JavaScript và quản lý state; Chart.js đảm nh
 
 ```text
 core-engine/src/main/java/com/loadsense/core/
-  controller/   # Boundary: REST DTO, validation, lỗi
+  controller/   # Boundary: REST DTO, validation, lỗi (bao gồm /api/settings)
   config/       # Security, CORS, STOMP authentication/authorization
-  service/      # Control: auth, configs, execution persistence, load scheduling, metrics
-  client/       # HTTP adapter cho target; AI adapter để giai đoạn sau
+  service/      # Control: auth, configs, execution persistence, load scheduling, metrics, anomaly detection
+  client/       # HTTP adapter cho target; AiClient gọi FastAPI AI Service
   repository/   # Truy vấn theo chủ sở hữu, persistence
   entity/       # UserAccount, TestConfig, MockDataSet, TestExecution, TestMetric, TestReport
   dto/          # Input/output contract tách khỏi credential/snapshot
-frontend/src/   # Auth, builder, charts, dashboard, history, AI Workspace
-ai-service/app/ # Pydantic contract và endpoints 501
+frontend/src/   # Auth, builder, settings modal, charts, dashboard, history, AI Workspace
+ai-service/app/ # FastAPI + Pydantic + NVIDIA Cloud AI client
 infra/          # Docker Compose, healthchecks
-scripts/        # Kiểm thử luồng browser
+scripts/        # browser-smoke.mjs (E2E) và benchmark.mjs (SLA & load benchmark)
 ```
 
 Mỗi lần chạy giữ snapshot riêng. Chỉ một điểm đo aggregate mỗi giây được ghi DB; không ghi từng request hoặc raw response/header/body vào log/report. Engine dừng các test `PENDING/RUNNING` còn sót khi khởi động lại bằng trạng thái `FAILED`, kèm báo cáo gián đoạn.

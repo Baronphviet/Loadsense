@@ -6,7 +6,7 @@ from fastapi import HTTPException
 import requests
 from app.model import NvidiaModel
 
-SAMPLE = {'elapsedSeconds': 1, 'totalRequests': 1, 'failedRequests': 0, 'throughput': 1, 'avgLatencyMs': 1, 'p50LatencyMs': 1, 'p95LatencyMs': 1, 'errorRate': 0, 'activeUsers': 1}
+SAMPLE = {'elapsedSeconds': 1, 'totalRequests': 1, 'failedRequests': 0, 'throughput': 1, 'avgLatencyMs': 1, 'p50LatencyMs': 1, 'p95LatencyMs': 1, 'p99LatencyMs': 0.0, 'intervalP95Ms': 0.0, 'intervalErrorRate': 0.0, 'errorRate': 0, 'activeUsers': 1}
 SAMPLES = [dict(SAMPLE, elapsedSeconds=i, totalRequests=i * 4) for i in (1, 2, 3)]
 
 
@@ -49,31 +49,63 @@ class AiFeaturesTest(unittest.TestCase):
             main.generate_mockdata(GenerateMockDataRequest(schemaJson={'$ref': '#/$defs/missing'}, count=1))
         self.assertEqual(error.exception.status_code, 400)
 
+    @patch('app.model.time.sleep')
     @patch.dict('os.environ', {'NVIDIA_API_KEY': 'test-key'})
     @patch('app.model.requests.post')
-    def test_provider_timeout_and_rate_limit(self, post):
+    def test_provider_timeout_and_rate_limit(self, post, sleep):
         post.side_effect = requests.Timeout()
         with self.assertRaises(HTTPException) as error:
             NvidiaModel().generate('test', {}, {})
         self.assertEqual(error.exception.detail['code'], 'AI_TIMEOUT')
+        self.assertEqual(post.call_count, 1)
+        post.reset_mock()
         post.side_effect = None
         post.return_value.status_code = 429
         with self.assertRaises(HTTPException) as error:
             NvidiaModel().generate('test', {}, {})
         self.assertEqual(error.exception.detail['code'], 'AI_RATE_LIMIT')
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    @patch('app.model.time.sleep')
+    @patch.dict('os.environ', {'LLM_API_KEY': 'generic-key', 'LLM_BASE_URL': 'https://api.openai.com/v1', 'LLM_MODEL': 'gpt-4o-mini'}, clear=True)
+    @patch('app.model.requests.post')
+    def test_neutral_llm_env_and_transient_retry(self, post, sleep):
+        transient = unittest.mock.Mock(status_code=503)
+        good = unittest.mock.Mock(status_code=200)
+        good.json.return_value = {'choices': [{'message': {'content': '{"ok": true}'}}]}
+        post.side_effect = [transient, good]
+        self.assertEqual(NvidiaModel().generate('test', {}, {}), {'ok': True})
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(post.call_args.args[0], 'https://api.openai.com/v1/chat/completions')
+        self.assertNotIn('chat_template_kwargs', post.call_args.kwargs['json'])
 
     @patch.dict('os.environ', {'NVIDIA_API_KEY': 'test-key'})
     @patch('app.model.requests.post')
-    def test_provider_auth_failure_and_invalid_json(self, post):
+    def test_provider_auth_failure_and_invalid_json_retry(self, post):
         post.return_value.status_code = 401
         with self.assertRaises(HTTPException) as error:
             NvidiaModel().generate('test', {}, {})
         self.assertEqual(error.exception.detail['code'], 'AI_AUTH_FAILED')
+        self.assertEqual(post.call_count, 1)
+
+        post.reset_mock()
         post.return_value.status_code = 200
         post.return_value.json.return_value = {'choices': [{'message': {'content': 'not json'}}]}
         with self.assertRaises(HTTPException) as error:
             NvidiaModel().generate('test', {}, {})
         self.assertEqual(error.exception.detail['code'], 'AI_INVALID_OUTPUT')
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(post.call_args.kwargs['json']['response_format'], {'type': 'json_object'})
+
+        post.reset_mock()
+        bad = unittest.mock.Mock(status_code=200)
+        bad.json.return_value = {'choices': [{'message': {'content': 'not json'}}]}
+        good = unittest.mock.Mock(status_code=200)
+        good.json.return_value = {'choices': [{'message': {'content': '{"ok": true}'}}]}
+        post.side_effect = [bad, good]
+        self.assertEqual(NvidiaModel().generate('test', {}, {}), {'ok': True})
+        self.assertEqual(post.call_count, 2)
 
 class EvidenceAnalysisTest(unittest.TestCase):
     @patch('app.main.model.generate')
@@ -216,3 +248,113 @@ class EvidenceAnalysisTest(unittest.TestCase):
         self.assertIn('1 request/giây', facts)
         self.assertIn('1 giây', facts)
         self.assertIn('10 giây', facts)
+
+    @patch('app.main.model.generate')
+    def test_observations_include_error_breakdown_and_anomaly_warning(self, generate):
+        generate.return_value = {'summary': 'x', 'bottlenecks': [], 'recommendations': [], 'findings': [], 'limitations': []}
+        request = AnalyzeLogRequest(
+            totalRequests=20, failedRequests=5, throughput=4, avgLatencyMs=50,
+            p50LatencyMs=30, p95LatencyMs=120, errorRate=25, samples=SAMPLES,
+            errorBreakdown={'http4xx': 0, 'http429': 2, 'http5xx': 1, 'timeout': 2, 'network': 0},
+            anomalyWarning='Tỷ lệ lỗi vượt ngưỡng 5% tại giây thứ 2.',
+        )
+        result = main.analyze_log(request)
+        observations = [f for f in result.findings if f.kind == 'observation']
+        breakdown_obs = [f for f in observations if 'Phân loại lỗi' in f.title]
+        anomaly_obs = [f for f in observations if 'bất thường' in f.title.lower()]
+        self.assertEqual(len(breakdown_obs), 1)
+        self.assertIn('HTTP 429: 2', breakdown_obs[0].evidence)
+        self.assertIn('HTTP 5xx: 1', breakdown_obs[0].evidence)
+        self.assertIn('Timeout: 2', breakdown_obs[0].evidence)
+        self.assertNotIn('HTTP 4xx', breakdown_obs[0].evidence)
+        self.assertNotIn('Network', breakdown_obs[0].evidence)
+        self.assertEqual(len(anomaly_obs), 1)
+        self.assertIn('Tỷ lệ lỗi vượt ngưỡng 5%', anomaly_obs[0].evidence)
+
+    def test_make_validator_uses_draft202012_and_checks_schema_draft(self):
+        from jsonschema import validators
+        from app.schemas import ValidateMockDataRequest
+        for draft in (
+            'http://json-schema.org/draft-04/schema#',
+            'http://json-schema.org/draft-06/schema#',
+            'http://json-schema.org/draft-07/schema#',
+            'https://json-schema.org/draft/2019-09/schema',
+            'https://json-schema.org/draft/2020-12/schema',
+        ):
+            validator = main.make_validator({'$schema': draft, 'type': 'object'})
+            self.assertIsInstance(validator, validators.Draft202012Validator)
+        with self.assertRaises(HTTPException) as error:
+            main.validate_mockdata(ValidateMockDataRequest(
+                schemaJson={'$schema': 'http://json-schema.org/draft-03/schema#', 'type': 'object'},
+                payloads=[{}],
+            ))
+        self.assertEqual(error.exception.status_code, 400)
+        self.assertEqual(error.exception.detail['code'], 'INVALID_SCHEMA')
+
+    @patch('app.main.model.generate')
+    def test_bottleneck_detector_produces_grounded_bottlenecks_and_recommendations(self, generate):
+        generate.return_value = {
+            'summary': '',
+            'bottlenecks': ['9999 fake'],
+            'recommendations': ['Rà soát truy vấn cơ sở dữ liệu khi tải đồng thời tăng.', 'Fake 9999 rec'],
+            'findings': [],
+            'limitations': [],
+        }
+        samples = [
+            dict(SAMPLE, elapsedSeconds=1, totalRequests=10, p95LatencyMs=40, intervalP95Ms=45, throughput=10),
+            dict(SAMPLE, elapsedSeconds=2, totalRequests=20, p95LatencyMs=120, intervalP95Ms=950, throughput=10),
+            dict(SAMPLE, elapsedSeconds=3, totalRequests=30, p95LatencyMs=220, intervalP95Ms=300, throughput=10),
+        ]
+        request = AnalyzeLogRequest(
+            totalRequests=30, failedRequests=6, throughput=10, avgLatencyMs=120,
+            p50LatencyMs=40, p95LatencyMs=220, p99LatencyMs=450, maxLatencyMs=950,
+            errorRate=20, status='STOPPED', stopReason='ANOMALY',
+            loadConfig={'virtualUsers': 10, 'durationSeconds': 3, 'requestsPerSecond': 50, 'timeoutMs': 1000, 'loadProfile': 'CONSTANT', 'rampUpSeconds': 0},
+            samples=samples,
+            errorBreakdown={'http429': 4, 'timeout': 2},
+            anomalyWarning='Early anomaly detected',
+        )
+        result = main.analyze_log(request)
+        text = result.model_dump_json()
+        self.assertNotIn('9999', text)
+        self.assertTrue(any('HTTP 429: 4' in b for b in result.bottlenecks))
+        self.assertTrue(any('Timeout: 2' in b for b in result.bottlenecks))
+        self.assertTrue(any('Interval p95' in b for b in result.bottlenecks))
+        self.assertTrue(any('p99 = 450' in b for b in result.bottlenecks))
+        self.assertTrue(any('Cài đặt' in r or 'rate limit' in r.lower() for r in result.recommendations))
+        self.assertIn('Rà soát truy vấn cơ sở dữ liệu khi tải đồng thời tăng.', result.recommendations)
+        self.assertLess(result.healthScore, 50)
+        self.assertIn(result.healthGrade, ('D', 'F'))
+        self.assertTrue(result.capacitySummary)
+
+    @patch('app.main.model.generate')
+    def test_health_score_and_capacity_summary_for_healthy_and_breaking_runs(self, generate):
+        generate.return_value = {'summary': '', 'bottlenecks': [], 'recommendations': [], 'findings': [], 'limitations': []}
+        healthy_samples = [
+            dict(SAMPLE, elapsedSeconds=1, totalRequests=20, throughput=20, p95LatencyMs=18, intervalP95Ms=20, intervalErrorRate=0, activeUsers=10),
+            dict(SAMPLE, elapsedSeconds=2, totalRequests=40, throughput=20, p95LatencyMs=22, intervalP95Ms=24, intervalErrorRate=0, activeUsers=15),
+            dict(SAMPLE, elapsedSeconds=3, totalRequests=60, throughput=20, p95LatencyMs=25, intervalP95Ms=25, intervalErrorRate=0, activeUsers=20),
+        ]
+        healthy = main.analyze_log(AnalyzeLogRequest(
+            totalRequests=60, failedRequests=0, throughput=20, avgLatencyMs=15,
+            p50LatencyMs=12, p95LatencyMs=25, p99LatencyMs=30, maxLatencyMs=40,
+            errorRate=0, status='COMPLETED', samples=healthy_samples,
+        ))
+        self.assertGreaterEqual(healthy.healthScore, 95)
+        self.assertEqual(healthy.healthGrade, 'A')
+        self.assertIn('20 req/s', healthy.capacitySummary)
+
+        degraded_samples = [
+            dict(SAMPLE, elapsedSeconds=1, totalRequests=15, throughput=15, p95LatencyMs=30, intervalP95Ms=35, intervalErrorRate=0, activeUsers=5),
+            dict(SAMPLE, elapsedSeconds=2, totalRequests=45, throughput=30, p95LatencyMs=60, intervalP95Ms=80, intervalErrorRate=0, activeUsers=10),
+            dict(SAMPLE, elapsedSeconds=3, totalRequests=75, throughput=30, p95LatencyMs=900, intervalP95Ms=1400, intervalErrorRate=12, activeUsers=20),
+        ]
+        degraded = main.analyze_log(AnalyzeLogRequest(
+            totalRequests=75, failedRequests=5, throughput=25, avgLatencyMs=250,
+            p50LatencyMs=50, p95LatencyMs=900, p99LatencyMs=1500, maxLatencyMs=1600,
+            errorRate=6.7, status='COMPLETED', samples=degraded_samples,
+            errorBreakdown={'http5xx': 5},
+        ))
+        self.assertIn('30 req/s', degraded.capacitySummary)
+        self.assertIn('giây 3', degraded.capacitySummary)
+        self.assertIn(degraded.healthGrade, ('C', 'D', 'F'))

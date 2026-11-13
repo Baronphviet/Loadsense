@@ -33,6 +33,7 @@ class CoreFlowTest {
     @Autowired com.loadsense.core.service.TestConfigService configs;
     static HttpServer target;
     static final Queue<String> bodies=new ConcurrentLinkedQueue<>();
+    static final Queue<String> receivedCookies=new ConcurrentLinkedQueue<>();
     static ExecutorService targetWorkers;
     @BeforeAll static void target() throws Exception {
         target=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);
@@ -48,6 +49,60 @@ class CoreFlowTest {
             try { exchange.sendResponseHeaders(200,0); exchange.close(); } catch(Exception ignored) {}
         });
         target.createContext("/redirect",exchange -> { exchange.getResponseHeaders().set("Location","http://169.254.169.254/"); exchange.sendResponseHeaders(302,-1); exchange.close(); });
+        target.createContext("/cookie",exchange -> {
+            String cookie=exchange.getRequestHeaders().getFirst("Cookie");
+            if(cookie!=null) receivedCookies.add(cookie);
+            exchange.getResponseHeaders().add("Set-Cookie","session=leak-check; Path=/");
+            exchange.sendResponseHeaders(200,0); exchange.close();
+        });
+        target.createContext("/chain/login",exchange -> {
+            byte[] bytes="{\"data\":{\"token\":\"chain-secret-42\"}}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()) { out.write(bytes); }
+        });
+        target.createContext("/chain/profile",exchange -> {
+            String auth=exchange.getRequestHeaders().getFirst("Authorization");
+            String query=exchange.getRequestURI().getQuery();
+            int code=("Bearer chain-secret-42".equals(auth) && "tok=chain-secret-42".equals(query)) ? 200 : 401;
+            exchange.sendResponseHeaders(code,0); exchange.close();
+        });
+        target.createContext("/openapi.json",exchange -> {
+            byte[] bytes="{\"openapi\":\"3.0.0\",\"paths\":{\"/items\":{\"get\":{\"summary\":\"List items\"},\"post\":{\"summary\":\"Create item\"}}}}".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type","application/json");
+            exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()) { out.write(bytes); }
+        });
+        target.createContext("/web",exchange -> {
+            byte[] bytes="<html><body><form action=\"/api/submit\" method=\"POST\"></form><a href=\"/api/info\">Info</a></body></html>".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type","text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()) { out.write(bytes); }
+        });
+        target.createContext("/portal",exchange -> {
+            byte[] bytes="<html><head><title>Portal CNTT</title></head><body><h1>Khoa CNTT</h1><a href=\"/tuyen-sinh\">Tuyển sinh</a><a href=\"/hop-tac\">Hợp tác</a><a href=\"/broken-page\">Trang lỗi</a></body></html>".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type","text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()) { out.write(bytes); }
+        });
+        target.createContext("/tuyen-sinh",exchange -> {
+            byte[] bytes="<html><head><title>Tuyển sinh</title><script>alert(1)</script></head><body><h1>Thông tin tuyển sinh đại học chính quy</h1><a href=\"/tuyen-sinh/chi-tiet-2026\">Chi tiết tuyển sinh 2026</a></body></html>".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type","text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()) { out.write(bytes); }
+        });
+        target.createContext("/tuyen-sinh/chi-tiet-2026",exchange -> {
+            byte[] bytes="<html><head><title>Chi tiết tuyển sinh 2026</title></head><body><h1>Chỉ tiêu &amp; Phương thức xét tuyển</h1></body></html>".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type","text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()) { out.write(bytes); }
+        });
+        target.createContext("/hop-tac",exchange -> {
+            byte[] bytes="<html><head><title>Hợp tác</title></head><body><h1>Hợp tác đối ngoại doanh nghiệp</h1></body></html>".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type","text/html; charset=utf-8");
+            exchange.sendResponseHeaders(200,bytes.length);
+            try(var out=exchange.getResponseBody()) { out.write(bytes); }
+        });
+        target.createContext("/broken-page",exchange -> { exchange.sendResponseHeaders(500,0); exchange.close(); });
         target.start();
     }
     @AfterAll static void cleanup() { target.stop(0); targetWorkers.shutdownNow(); }
@@ -123,7 +178,16 @@ class CoreFlowTest {
         assertThat(json.writeValueAsString(analysis)).doesNotContain("127.0.0.1", "Integration API", "Changed config");
         assertThat(request("GET","/api/executions/"+execution+"/report",token,null,200).get("aiStatus").asText()).isEqualTo("DEFERRED");
         mvc.perform(get("/api/executions/"+execution+"/metrics.csv").header("Authorization","Bearer "+token)).andExpect(status().isOk()).andExpect(content().string(org.hamcrest.Matchers.containsString("p95_latency_ms")));
-        request("DELETE","/api/test-configs/"+id,token,null,409);
+        // Xóa cấu hình dù đã có lịch sử chạy; báo cáo vẫn tồn tại nhờ config_snapshot
+        request("DELETE","/api/test-configs/"+id,token,null,204);
+        assertThat(request("GET","/api/executions/"+execution,token,null,200).get("name").asText()).isEqualTo("Integration API");
+        // Xóa từng lần chạy và dọn lịch sử
+        request("DELETE","/api/executions/"+execution,token,null,204);
+        request("GET","/api/executions/"+execution,token,null,404);
+        String id2=create(token,config("/ok",1,1));
+        awaitTerminal(token,start(token,id2));
+        var cleared=request("DELETE","/api/executions",token,null,200);
+        assertThat(cleared.get("deleted").asInt()).isGreaterThanOrEqualTo(1);
     }
     @Test void stopIsIdempotentAndOwnershipIsEnforced() throws Exception {
         String owner=token(), outsider=token(); String id=create(owner,config("/slow",30,15)); String execution=start(owner,id);
@@ -133,7 +197,9 @@ class CoreFlowTest {
         request("GET","/api/test-configs/"+id+"/mock-data",outsider,null,404);
         request("POST","/api/executions/"+execution+"/stop",owner,null,200);
         request("POST","/api/executions/"+execution+"/stop",owner,null,200);
-        assertThat(awaitTerminal(owner,execution).get("status").asText()).isEqualTo("STOPPED");
+        var stopped=awaitTerminal(owner,execution);
+        assertThat(stopped.get("status").asText()).isEqualTo("STOPPED");
+        assertThat(stopped.get("stopReason").asText()).isEqualTo("USER");
         request("POST","/api/executions/"+execution+"/stop",owner,null,200);
     }
     @Test void errorsTimeoutAndRedirectAreMeasured() throws Exception {
@@ -211,6 +277,62 @@ class CoreFlowTest {
         var report=request("GET","/api/executions/"+execution+"/report",ownerToken,null,200);
         assertThat(report.get("aiStatus").asText()).isEqualTo("COMPLETED");
         assertThat(report.get("aiAnalysis").asText()).contains("second").doesNotContain("first");
+        assertThat(report.get("aiAnalyzedAt").asText()).isNotBlank();
+        store.saveAiAnalysis(id,owner,"{\"analysisMode\":\"insufficient_data\",\"summary\":\"not enough\"}");
+        var insufficient=request("GET","/api/executions/"+execution+"/report",ownerToken,null,200);
+        assertThat(insufficient.get("aiStatus").asText()).isEqualTo("INSUFFICIENT_DATA");
+    }
+    @Test void userSettingsGetUpdateAndValidate() throws Exception {
+        request("GET","/api/settings",null,null,401);
+        String token=token();
+        var defaults=request("GET","/api/settings",token,null,200);
+        assertThat(defaults.get("autoAiAnalyze").asBoolean()).isTrue();
+        assertThat(defaults.get("earlyAnomalyEnabled").asBoolean()).isTrue();
+        assertThat(defaults.get("anomalyErrorRateThreshold").asDouble()).isEqualTo(5.0);
+        assertThat(defaults.get("anomalyP95ThresholdMs").asInt()).isEqualTo(1000);
+        assertThat(defaults.get("autoStopOnAnomaly").asBoolean()).isFalse();
+        var updated=request("PUT","/api/settings",token,Map.of(
+            "autoAiAnalyze",false,"earlyAnomalyEnabled",true,
+            "anomalyErrorRateThreshold",12.5,"anomalyP95ThresholdMs",500,"autoStopOnAnomaly",true),200);
+        assertThat(updated.get("autoAiAnalyze").asBoolean()).isFalse();
+        assertThat(updated.get("anomalyErrorRateThreshold").asDouble()).isEqualTo(12.5);
+        assertThat(updated.get("anomalyP95ThresholdMs").asInt()).isEqualTo(500);
+        assertThat(updated.get("autoStopOnAnomaly").asBoolean()).isTrue();
+        request("PUT","/api/settings",token,Map.of(
+            "autoAiAnalyze",true,"earlyAnomalyEnabled",true,
+            "anomalyErrorRateThreshold",0.1,"anomalyP95ThresholdMs",1000,"autoStopOnAnomaly",false),400);
+    }
+    @Test void earlyAnomalyDetectionTriggersAutoStopAndTracksErrorBreakdown() throws Exception {
+        String token=token();
+        request("PUT","/api/settings",token,Map.of(
+            "autoAiAnalyze",false,"earlyAnomalyEnabled",true,
+            "anomalyErrorRateThreshold",5.0,"anomalyP95ThresholdMs",1000,"autoStopOnAnomaly",true),200);
+        var cfg=config("/error",8,5); cfg.put("requestsPerSecond",25);
+        String execution=start(token,create(token,cfg));
+        var finished=awaitTerminal(token,execution);
+        assertThat(finished.get("status").asText()).isEqualTo("STOPPED");
+        assertThat(finished.get("stopReason").asText()).isEqualTo("ANOMALY");
+        assertThat(finished.get("anomalyWarning").asText()).contains("Early anomaly detected").contains("protective auto-stop");
+        assertThat(finished.get("failureReason").asText()).contains("protective auto-stop");
+        assertThat(finished.get("errorBreakdown").get("http5xx").asLong()).isGreaterThanOrEqualTo(10L);
+    }
+    @Test void metricsAfterElapsedFiltersOlderSamples() throws Exception {
+        String token=token();
+        String execution=start(token,create(token,config("/ok",3,2)));
+        awaitTerminal(token,execution);
+        var all=request("GET","/api/executions/"+execution+"/metrics",token,null,200);
+        assertThat(all.size()).isGreaterThanOrEqualTo(2);
+        double firstElapsed=all.get(0).get("elapsedSeconds").asDouble();
+        var after=request("GET","/api/executions/"+execution+"/metrics?afterElapsed="+firstElapsed,token,null,200);
+        assertThat(after.size()).isLessThan(all.size());
+        for(var m:after) assertThat(m.get("elapsedSeconds").asDouble()).isGreaterThan(firstElapsed);
+    }
+    @Test void targetRequestsDoNotPersistCookiesAcrossRequests() throws Exception {
+        receivedCookies.clear();
+        String token=token();
+        var cfg=config("/cookie",1,3); cfg.put("requestsPerSecond",15);
+        awaitTerminal(token,start(token,create(token,cfg)));
+        assertThat(receivedCookies).isEmpty();
     }
     @Test void websocketPublishesPrivateMetricsAndRejectsOtherOwners() throws Exception {
         String owner=token(), outsider=token(), id=create(owner,config("/ok",3,4)); String execution=start(owner,id);
@@ -234,5 +356,103 @@ class CoreFlowTest {
             public void handleFrame(StompHeaders h,Object payload) { denied.complete(false); }
         });
         assertThat(denied.get(5,TimeUnit.SECONDS)).isTrue(); client.stop(); awaitTerminal(owner,execution);
+    }
+    @Test void scenarioChainingExtractsJsonAndInjectsIntoNextStep() throws Exception {
+        String token=token();
+        String base="http://127.0.0.1:"+target.getAddress().getPort();
+        var cfg=config("/chain/login",2,2);
+        cfg.put("requestsPerSecond",10);
+        cfg.put("loadProfile","RAMP_UP");
+        cfg.put("rampUpSeconds",1);
+        cfg.put("steps",List.of(
+            Map.of("name","Login","targetUrl",base+"/chain/login","httpMethod","POST","headers",Map.of(),"body","{}","extractVar","authToken","extractPath","$.data.token"),
+            Map.of("name","Profile","targetUrl",base+"/chain/profile?tok={{authToken}}","httpMethod","GET","headers",Map.of("Authorization","Bearer {{authToken}}"),"body","")
+        ));
+        var bad=new HashMap<>(cfg);
+        bad.put("steps",List.of(Map.of("name","SSRF","targetUrl","http://{{authToken}}.example.com/ok","httpMethod","GET","headers",Map.of())));
+        request("POST","/api/test-configs",token,bad,400);
+
+        var created=request("POST","/api/test-configs",token,cfg,201);
+        assertThat(created.get("loadProfile").asText()).isEqualTo("RAMP_UP");
+        assertThat(created.get("steps").size()).isEqualTo(2);
+        var finished=awaitTerminal(token,start(token,created.get("id").asText()));
+        assertThat(finished.get("status").asText()).isEqualTo("COMPLETED");
+        assertThat(finished.get("stopReason").asText()).isEqualTo("COMPLETED");
+        assertThat(finished.get("totalRequests").asLong()).isGreaterThanOrEqualTo(4L);
+        assertThat(finished.get("errorRate").asDouble()).isZero();
+        assertThat(finished.get("p99LatencyMs").asDouble()).isGreaterThanOrEqualTo(0);
+    }
+    @Test void loginBruteForceAndAiRateLimitAreEnforced() throws Exception {
+        String user="guard"+UUID.randomUUID().toString().substring(0,8);
+        String token=register(user);
+        for(int i=0;i<5;i++) request("POST","/api/auth/login",null,Map.of("username",user,"password","wrong-password"),401);
+        var loginBlocked=request("POST","/api/auth/login",null,Map.of("username",user,"password","test-password-123"),429);
+        assertThat(loginBlocked.get("code").asText()).isEqualTo("LOGIN_RATE_LIMITED");
+        for(int i=0;i<10;i++) request("POST","/api/ai/parse-prompt",token,Map.of("prompt","test"),503);
+        var aiBlocked=request("POST","/api/ai/parse-prompt",token,Map.of("prompt","test"),429);
+        assertThat(aiBlocked.get("code").asText()).isEqualTo("AI_RATE_LIMITED");
+    }
+    @Test void probeAndAutoDiscoveryWorkWithOpenApiAndHtml() throws Exception {
+        String token=token();
+        String base="http://127.0.0.1:"+target.getAddress().getPort();
+        request("POST","/api/discover",token,Map.of("targetUrl",base+"/web","authorizedTarget",false),400);
+
+        var probe=request("POST","/api/probe",token,Map.of("targetUrl",base+"/chain/login","httpMethod","GET","authorizedTarget",true),200);
+        assertThat(probe.get("reachable").asBoolean()).isTrue();
+        assertThat(probe.get("status").asInt()).isEqualTo(200);
+        assertThat(probe.get("suggestedExtractPaths").toString()).contains("$.data.token");
+
+        var disc=request("POST","/api/discover",token,Map.of("targetUrl",base+"/web","authorizedTarget",true),200);
+        assertThat(disc.get("primaryProbe").get("status").asInt()).isEqualTo(200);
+        String jsonStr=disc.get("endpoints").toString();
+        assertThat(jsonStr).contains("OPENAPI").contains("/items").contains("STEP_STRESS");
+        var firstConfig=disc.get("endpoints").get(0).get("proposedConfig");
+        assertThat(firstConfig.get("virtualUsers").asInt()).isEqualTo(20);
+        assertThat(firstConfig.get("durationSeconds").asInt()).isEqualTo(12);
+        assertThat(firstConfig.get("requestsPerSecond").asInt()).isEqualTo(60);
+        assertThat(firstConfig.get("loadProfile").asText()).isEqualTo("STEP_STRESS");
+    }
+    @Test void autoTestSuiteCrawlsEditsYamlRunsInParallelAndDiagnosesFailures() throws Exception {
+        String token=token();
+        String base="http://127.0.0.1:"+target.getAddress().getPort();
+        var created=request("POST","/api/suites",token,Map.of("targetUrl",base+"/portal","authorizedTarget",true,"maxCases",100),201);
+        String suiteId=created.get("id").asText();
+        assertThat(created.get("totalCases").asInt()).isGreaterThanOrEqualTo(5);
+        assertThat(created.get("planYaml").asText()).contains("useCases:");
+        String createdJson=created.toString();
+        assertThat(createdJson).contains("/tuyen-sinh/chi-tiet-2026").contains("<base href=").doesNotContain("alert(1)");
+
+        var ran=request("POST","/api/suites/"+suiteId+"/run",token,Map.of(),200);
+        assertThat(ran.get("passedCases").asInt()).isGreaterThanOrEqualTo(4);
+        assertThat(ran.get("failedCases").asInt()).isGreaterThanOrEqualTo(1);
+        String ranJson=ran.toString();
+        assertThat(ranJson).contains("PASSED").contains("FAILED").contains("500").contains("fixPrompt").contains("previewSummary").contains("@playwright/test");
+
+        String firstCaseId=ran.get("useCases").get(0).get("testCases").get(0).get("id").asText();
+        var explained=request("POST","/api/suites/"+suiteId+"/cases/"+firstCaseId+"/ai-explain",token,Map.of(),200);
+        var explainedDiag=explained.get("useCases").get(0).get("testCases").get(0).get("diagnosis");
+        assertThat(explainedDiag.get("previewSummary").asText()).isNotBlank();
+        assertThat(explainedDiag.get("aiGenerated").asBoolean()).isTrue();
+
+        var deepSuite=request("POST","/api/suites",token,Map.of("targetUrl",base+"/portal","authorizedTarget",true,"maxCases",200),201);
+        assertThat(deepSuite.get("totalCases").asInt()).isGreaterThanOrEqualTo(15);
+
+        String customYaml="""
+            useCases:
+              - useCase: Home & Spotlight
+                slug: HOM
+                testCases:
+                  - id: HOM-001
+                    priority: High
+                    name: Trang chủ Portal
+                    method: GET
+                    url: %s/portal
+                    steps:
+                      - Navigate to %s/portal
+                      - assert: Verify HTTP 200
+            """.formatted(base,base);
+        var updated=request("PUT","/api/suites/"+suiteId+"/plan",token,Map.of("planYaml",customYaml),200);
+        assertThat(updated.get("totalCases").asInt()).isEqualTo(1);
+        assertThat(updated.get("useCases").get(0).get("testCases").get(0).get("status").asText()).isEqualTo("PASSED");
     }
 }

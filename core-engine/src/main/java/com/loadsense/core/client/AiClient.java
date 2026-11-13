@@ -35,6 +35,14 @@ public class AiClient {
                 .header("Content-Type","application/json").header("X-AI-Service-Token",token)
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             var response=client.send(request,HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode()==401 || response.statusCode()==403) {
+                String msg="AI Service authentication failed";
+                try {
+                    var detail=json.readTree(response.body()).path("detail");
+                    msg=detail.path("message").asText(msg);
+                } catch (Exception ignored) {}
+                throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,"AI_AUTH_ERROR",msg);
+            }
             var result=json.readTree(response.body());
             if (response.statusCode()>=400) {
                 var detail=result.path("detail");

@@ -31,23 +31,48 @@ public class TestConfigService {
     public ConfigView update(UUID id, UUID owner, ConfigRequest input) { return save(owned(id,owner),input); }
     @Transactional public void delete(UUID id, UUID owner) {
         var config=owned(id,owner);
-        if(executions.existsByTestConfigId(id)) throw ApiException.conflict("Cấu hình có lịch sử chạy; giữ lại để bảo toàn báo cáo");
-        datasets.deleteAll(datasets.findByTestConfigIdOrderByCreatedAtDesc(id)); configs.delete(config);
+        if(executions.existsByTestConfigIdAndStatusIn(id, List.of(ExecutionStatus.PENDING, ExecutionStatus.RUNNING)))
+            throw ApiException.conflict("Bài kiểm thử đang chạy; hãy dừng trước khi xóa cấu hình");
+        var linkedExecutions=executions.findByTestConfigId(id);
+        for(var e:linkedExecutions) e.testConfigId=null;
+        var dsList=datasets.findByTestConfigIdOrderByCreatedAtDesc(id);
+        if(!dsList.isEmpty()) {
+            var dsIds=dsList.stream().map(d -> d.id).toList();
+            for(var e:executions.findByMockDataSetIdIn(dsIds)) e.mockDataSetId=null;
+        }
+        executions.flush();
+        datasets.deleteAll(dsList);
+        configs.delete(config);
     }
     private ConfigView save(TestConfig c, ConfigRequest input) {
         policy.validate(input,c.userId);
         c.name=input.name().trim(); c.targetUrl=input.targetUrl(); c.httpMethod=input.httpMethod();
         c.requestHeaders=encode(input.headers()==null ? Map.of() : input.headers()); c.requestBody=input.body();
         c.virtualUsers=input.virtualUsers(); c.durationSeconds=input.durationSeconds();
-        c.requestsPerSecond=input.requestsPerSecond(); c.timeoutMs=input.timeoutMs(); c.updatedAt=Instant.now();
+        c.requestsPerSecond=input.requestsPerSecond(); c.timeoutMs=input.timeoutMs();
+        c.loadProfile=input.resolvedProfile();
+        c.rampUpSeconds="RAMP_UP".equals(c.loadProfile) ? Math.min(c.durationSeconds, input.resolvedRampUpSeconds()) : 0;
+        var steps=input.resolvedSteps();
+        c.stepsJson=steps.isEmpty() ? null : encode(steps);
+        c.updatedAt=Instant.now();
         return view(configs.save(c));
     }
     public ConfigView view(TestConfig c) {
         return new ConfigView(c.id,c.name,c.targetUrl,c.httpMethod,headers(c),c.requestBody,c.virtualUsers,
-            c.durationSeconds,c.requestsPerSecond,c.timeoutMs,c.createdAt,c.updatedAt);
+            c.durationSeconds,c.requestsPerSecond,c.timeoutMs,
+            c.loadProfile==null || c.loadProfile.isBlank() ? "CONSTANT" : c.loadProfile,
+            c.rampUpSeconds,steps(c),c.createdAt,c.updatedAt);
     }
     public ConfigRequest request(TestConfig c) {
-        return new ConfigRequest(c.name,c.targetUrl,c.httpMethod,headers(c),c.requestBody,c.virtualUsers,c.durationSeconds,c.requestsPerSecond,c.timeoutMs);
+        return new ConfigRequest(c.name,c.targetUrl,c.httpMethod,headers(c),c.requestBody,c.virtualUsers,
+            c.durationSeconds,c.requestsPerSecond,c.timeoutMs,
+            c.loadProfile==null || c.loadProfile.isBlank() ? "CONSTANT" : c.loadProfile,
+            c.rampUpSeconds,steps(c));
+    }
+    private List<ScenarioStep> steps(TestConfig c) {
+        if(c.stepsJson==null || c.stepsJson.isBlank()) return List.of();
+        try { return json.readValue(c.stepsJson,new TypeReference<List<ScenarioStep>>() {}); }
+        catch(Exception e) { return List.of(); }
     }
     private Map<String,String> headers(TestConfig c) {
         try { return json.readValue(c.requestHeaders,new TypeReference<Map<String,String>>() {}); }
@@ -64,7 +89,9 @@ public class TestConfigService {
         if(input.payloadsJson().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>262144 ||
             (input.schemaJson()!=null && input.schemaJson().getBytes(java.nio.charset.StandardCharsets.UTF_8).length>65536))
             throw ApiException.invalid("Payloads tối đa 256 KiB, schema tối đa 64 KiB");
-        if(Set.of("GET","HEAD").contains(c.httpMethod)) throw ApiException.invalid("Dữ liệu mock chỉ dành cho method có body");
+        var stepList=steps(c);
+        String bodyMethod=stepList.isEmpty() ? c.httpMethod : stepList.get(0).httpMethod();
+        if(Set.of("GET","HEAD").contains(bodyMethod)) throw ApiException.invalid("Dữ liệu mock chỉ dành cho method có body");
         var payloads=parsePayloads(input.payloadsJson());
         if(input.schemaJson()!=null && !input.schemaJson().isBlank()) {
             try {

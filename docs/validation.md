@@ -1,67 +1,64 @@
 # Kết quả kiểm chứng triển khai
 
-Ngày kiểm tra: **14/10/2026**, timezone Asia/Ho_Chi_Minh. Các phép kiểm tra dưới đây đã chạy thực tế trong workspace, không phải kế hoạch kiểm thử.
+Tài liệu này ghi nhận phạm vi kiểm chứng kỹ thuật của LoadSense, gồm mốc baseline **14/10/2026**, đợt nâng cấp **V5** (User Settings, Early Anomaly Detection, NVIDIA Cloud AI, `errorBreakdown`) và đợt hoàn thiện **V6** (Interval Metrics, `p99`/`max`, Load/Stress/Spike Profiles, Scenario Chaining, `stopReason`, Bottleneck Detector, Neutral 3rd-party LLM adapter, Rate Limiting, History Comparison và Benchmark thực nghiệm).
 
-| Kiểm tra | Kết quả |
-| --- | --- |
-| Maven / Java 17, H2 integration suite | 14 tests, 0 failure, 0 error |
-| Maven verify / PostgreSQL 15 | 14 tests, 0 failure, 0 error |
-| Flyway trên PostgreSQL mới | V1 + V2 apply thành công, Hibernate schema validate thành công |
-| Frontend ESLint | Pass |
-| Vite production build | Pass, 59 modules; JS khoảng 362 kB, gzip khoảng 121 kB |
-| pnpm 10.17.1 frozen-lockfile | Pass |
-| AI Pydantic / deferred endpoint contracts | 2 tests pass; không chạy model |
-| Docker build Core / Frontend | Pass |
-| Compose PostgreSQL / Core / nginx | Khởi động và healthchecks pass |
-| Browser E2E trên Compose production | Pass toàn bộ luồng dưới đây |
-| OpenAPI JSON | Parse thành công và tất cả schema references hợp lệ |
+## Tổng hợp các lớp kiểm thử
 
-## Phạm vi test backend
+| Lớp / Công cụ | Phạm vi kiểm tra | Cách chạy | Kết quả ghi nhận mới nhất |
+| --- | --- | --- | --- |
+| Core Engine (Maven / Java 17) | Unit & integration tests (H2) | `mvn -B -f core-engine/pom.xml test` | **29/29 pass** (`CoreFlowTest`: 20, `MetricAccumulatorTest`: 5, `AiAnalysisInputTest`: 2, `AiClientTest`: 2) |
+| PostgreSQL 15 + Flyway V1–V6 | Schema migration `V1`–`V6` & Hibernate `ddl-auto=validate` | Chạy `core-0.0.1-SNAPSHOT.jar` với `postgres:15-alpine` | **6/6 migrations** (`V1`–`V6`) `success = t`, startup khỏe mạnh |
+| AI Service (Python 3.11+) | Contract, Bottleneck Detector, Retry & LLM adapter (`unittest`) | `cd ai-service && python3 -m unittest discover -s tests -v` | **24/24 pass** |
+| Frontend Unit Tests | Report model, `loadProfileLabels`, `compareExecutions` (`node:test`) | `node --test frontend/src/reportModel.test.js` | **4/4 pass** |
+| Frontend Lint & Build | ESLint + Vite production bundle | `pnpm --dir frontend lint && pnpm --dir frontend build` | **Pass** (`eslint` exit 0; Vite `63 modules`) |
+| Load & SLA Benchmark | 50 / 100 / 300 VUs tới echo server độc lập, đo STOMP `receivedAt - sampleTime` | `STRICT_SLA=1 VUS_LIST=50,100,300 DURATION_SECONDS=10 RPS_LIMIT=500 node scripts/benchmark.mjs` | **Pass SLA** cả 3 mức (`p95UpdateMs <= 27 ms << 2000 ms`) |
+| Browser E2E (Playwright) | Luồng đăng ký, builder, STOMP, polling dự phòng, mock data, AI Workspace, CSV, responsive | `pnpm --dir frontend test:e2e` | Pass ở mốc baseline 14/10/2026 (chưa chạy lại trên UI đợt V6) |
 
-- Đăng ký, username trùng, đăng nhập đúng/sai, API không JWT.
-- DTO tải quá mức, host ngoài allowlist, port 0, restricted headers và CRLF.
-- Cần xác nhận target trước khi bắt đầu execution.
-- Chạy đến terminal, lịch sử metrics, report DEFERRED và CSV.
-- Sửa cấu hình giữa phiên vẫn giữ snapshot execution cũ.
-- Dừng idempotent, tài khoản khác không đọc/dừng/extract dữ liệu qua execution/config/dataset ID.
-- HTTP 500, timeout, redirect không được theo.
-- Engine nhận 300 VUs và vẫn giữ rate cap dùng chung; admission không nhận test thứ ba khi mặc định 2 test đang hoạt động.
-- Payload thủ công xoay vòng và thuộc đúng config/owner.
-- STOMP nhận metrics cho owner; subscription của tài khoản khác bị từ chối.
-- Recovery PENDING sau gián đoạn chuyển FAILED và tạo report ENGINE_INTERRUPTED.
-- RPS thấp vẫn giữ duration thay vì hoàn tất sớm sau request đầu.
-- Histogram average/p50/p95/errorRate/interval throughput, paced limiter và cancellation.
+## Phạm vi kiểm thử Core Engine (V1–V6)
 
-## Phạm vi test giao diện
+- **Xác thực & Chống brute-force:** Đăng ký, username trùng, đăng nhập đúng/sai, API không JWT, và khóa tạm 60 giây (`429 LOGIN_RATE_LIMITED`) khi sai 5 lần liên tiếp trên cùng `username`.
+- **Target Policy & Scenario Chaining:** Kiểm tra DTO quá mức, host ngoài allowlist (kể cả multi-host khi lưu chain), port 0, restricted headers, CRLF, cần xác nhận target trước khi chạy; hỗ trợ chuỗi 0–3 `ScenarioStep`, giữ biến `{{var}}` ở path/query/headers/body và chặn `{{...}}` ở scheme/authority để chống SSRF template injection.
+- **Load Profiles & Metrics:** `PacedRateLimiter` hỗ trợ `CONSTANT`, `RAMP_UP`, `STEP_STRESS`, `SPIKE`; `MetricAccumulator` duy trì song song histogram tích lũy (`p50`, `p95`, `p99`, `max`) và cửa sổ 1 giây (`intervalP95Ms`, `intervalErrorRate`); phân loại `errorBreakdown` (`http4xx`, `http429`, `http5xx`, `timeout`, `network`); cô lập cookie (`disableCookieManagement`).
+- **Early Anomaly Detection & Stop Reason:** Đánh giá theo chỉ số từng nhịp (`intervalErrorRate`, `intervalP95Ms`, bỏ qua nhịp rỗng), cảnh báo qua STOMP và tự dừng bảo vệ sau 3 chu kỳ liên tiếp khi `autoStopOnAnomaly = true`, phân biệt rõ `stopReason` (`COMPLETED`, `USER`, `ANOMALY`, `INTERRUPTED`, `ERROR`).
+- **Rate Limit & Recovery:** Giới hạn gọi AI theo người dùng (`ai-rate-limit-per-minute: 10`, sliding window trên `/api/ai/*` và `/api/executions/{id}/report/ai`), bounded AI `ThreadPoolExecutor(2, 4, 60s, LinkedBlockingQueue(32))`, `AiClient` map `401`/`403` từ AI Service sang `503`, `GET /api/executions/{id}/metrics?afterElapsed=`, STOMP ownership và recovery `PENDING/RUNNING` → `FAILED` khi restart.
+- **PostgreSQL + Flyway V1–V6:** Kiểm chứng trực tiếp `V1`–`V6` (`V6__interval_metrics_load_profile_and_stop_reason.sql`) trên `postgres:15-alpine` với `hibernate.ddl-auto=validate`.
 
-Script [browser-smoke.mjs](../scripts/browser-smoke.mjs) đã chạy trên `http://localhost:3000` qua nginx:
+## Phạm vi kiểm thử AI Service & Frontend
 
-1. Đăng ký tài khoản và nhận dữ liệu workspace.
-2. Tạo cấu hình GET qua biểu mẫu.
-3. Nút bắt đầu disabled đến khi xác nhận quyền test.
-4. Nhận STOMP metrics và vẽ Chart.js; đợi đủ mẫu để chụp live dashboard.
-5. Hoàn thành, mở report, tải CSV và xem history.
-6. Reload vẫn giữ session và xem lại report đã lưu.
-7. Mô phỏng WebSocket không truy cập được bằng endpoint port 1 trong browser test; REST polling vẫn nhận mẫu và dừng được test.
-8. Tạo cấu hình POST, lưu mảng JSON thủ công, chọn bộ dữ liệu và hoàn tất execution.
-9. AI Workspace hiển thị deferred; nút gửi model disabled.
-10. Desktop 1440px và mobile 390px không có page overflow; xem builder mobile.
-11. Đăng xuất rồi đăng nhập lại.
-12. Không có browser `pageerror`.
+- **AI Service (`ai-service/tests/`):**
+  - Adapter hỗ trợ biến môi trường trung lập `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL` / `LLM_TIMEOUT_SECONDS` (fallback về `NVIDIA_*`), chỉ đính kèm `chat_template_kwargs` cho Nemotron/NVIDIA URL, retry tối đa 3 lần với exponential backoff khi gặp HTTP `429/502/503/504`.
+  - Hàm `detect_bottlenecks_and_recommendations` sinh điểm nghẽn và khuyến nghị bám số liệu (`http429`, `http5xx`, `timeout`/`network`, `http4xx`, độ trễ tăng theo thời gian/nhịp, đuôi `p99`, bão hòa throughput, `stopReason == ANOMALY`), đồng thời lọc câu chứa số liệu chưa kiểm chứng từ LLM bằng `_contains_digits`.
+  - Phương án Local LLM / Ollama đã bị loại bỏ khỏi phạm vi triển khai.
+- **Frontend (`frontend/src/`):**
+  - `TestBuilder.jsx`: chọn `loadProfile` (`CONSTANT`, `RAMP_UP`, `STEP_STRESS`, `SPIKE`), nhập `rampUpSeconds`, thêm 0–3 bước **Scenario Chaining** kèm trích xuất biến JSON và xác thực nhiều target host.
+  - `Charts.jsx`: vẽ đồng thời `p50`, `p95`, `p99`, `Interval p95 (1s)` (nét đứt) và `Error %` / `Error % (1s)` (nét đứt).
+  - `App.jsx`: `AiReport` hiển thị đầy đủ 3 khối (**Điểm nghẽn**, **Đề xuất khắc phục**, **Quan sát & Giả thuyết**); `ExecutionDetail` hiển thị `p99`/`Max`, nhãn `loadProfile`, nhãn `TỰ DỪNG BẢO VỆ` khi `stopReason === 'ANOMALY'`; trang Lịch sử bổ sung `ComparePanel` so sánh **Baseline vs Current**.
 
-Ảnh đã chụp và xem trực quan nằm ở `output/screenshots/`: login, builder, live dashboard, history/report, AI Workspace, mobile dashboard và mobile builder. Đây là artifacts cục bộ, được bỏ qua trong Git.
+## Kết quả Benchmark tải & độ trễ realtime (`scripts/benchmark.mjs`)
 
-## Giới hạn của bằng chứng
+Thực nghiệm chạy trên `core-0.0.1-SNAPSHOT.jar` (Java 17) kết nối PostgreSQL 15, bắn tải tới Node.js HTTP echo server **độc lập** trên `127.0.0.1:18081` (độ trễ phản hồi giả lập `15 ms`), với `DURATION_SECONDS=10`, `RPS_LIMIT=500`, `STRICT_SLA=1` (ngưỡng SLA độ trễ cập nhật STOMP `<= 2000 ms`):
 
-Test 300 VUs chứng minh engine có thể tạo và điều phối số worker đó trong luồng kiểm tra ngắn; không chứng minh throughput cực đại, ổn định nhiều giờ hay SLA dashboard trên máy triển khai mục tiêu. Demo target cùng JVM dùng kiểm tra luồng, không phải target benchmark độc lập. Chưa kiểm định JSON Schema của mock payload, chưa triển khai AI hoặc chạy đánh giá model. CI workflow đã được cấu hình, chưa có kết quả GitHub Actions từ remote trong phiên này.
+| Mức tải (VUs) | Tổng Request | Lỗi | Tỷ lệ lỗi | Throughput (req/s) | p50 (ms) | p95 (ms) | p99 (ms) | Số mẫu STOMP | Độ trễ STOMP TB (ms) | Độ trễ STOMP p95 (ms) | Độ trễ STOMP Max (ms) | SLA `< 2000 ms` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **50 VUs** | 4.955 | 0 | 0,00% | 495,36 | 16 | 17 | 43 | 10 | 17 | 27 | 27 | **Đạt** |
+| **100 VUs** | 4.988 | 1 | 0,02% | 498,74 | 16 | 16 | 17 | 10 | 13 | 19 | 19 | **Đạt** |
+| **300 VUs** | 4.992 | 3 | 0,06% | 499,13 | 15 | 16 | 16 | 10 | 11 | 16 | 16 | **Đạt** |
 
-## Bản chạy thử cục bộ
+Nhận xét: Động cơ điều phối **300 VUs** ổn định ở ~**499 req/s** sát trần `RPS_LIMIT=500`, độ trễ cập nhật WebSocket STOMP `p95` chỉ từ **16–27 ms** (thấp hơn rất nhiều so với ngưỡng `1.000–2.000 ms` trong đề cương).
 
-Stack kiểm chứng dùng Compose project `loadsense-validation`, giao diện tại `http://localhost:3000`. Có thể tự đăng ký tài khoản để xem; tài khoản/dữ liệu smoke test chỉ phục vụ QA.
+## Bảng kiểm thử hộp đen (Black-box Test Cases theo Use Case)
 
-```bash
-# Dừng bản chạy thử, giữ volume của nó:
-docker compose -p loadsense-validation -f infra/docker-compose.yml down
-# Sau đó chạy stack riêng theo README:
-docker compose --env-file .env -f infra/docker-compose.yml up --build -d
-```
+| Mã TC | Use Case | Đầu vào | Các bước thực hiện | Kết quả kỳ vọng | Kết quả thực tế |
+| --- | --- | --- | --- | --- | --- |
+| **TC-01** | UC-01 Đăng ký / Đăng nhập & Bảo mật | Username hợp lệ; mật khẩu sai 5 lần liên tiếp | 1. Đăng ký tài khoản mới.<br>2. Gửi `POST /api/auth/login` sai mật khẩu 5 lần trong 60s.<br>3. Thử đăng nhập lần 6. | Lần 1–5 trả `401`; lần 6 bị khóa tạm trả `429 LOGIN_RATE_LIMITED`; truy cập tài nguyên user khác trả `404`/`403`. | **Đạt** (`CoreFlowTest`) |
+| **TC-02** | UC-02 Cấu hình tải & Profile | `targetUrl` trong allowlist, `loadProfile = RAMP_UP`, `rampUpSeconds = 10`, `virtualUsers = 50` | 1. Tạo config qua `POST /api/configs`.<br>2. Thử cấu hình chứa host ngoài allowlist hoặc header `Host`/`CRLF`. | Config hợp lệ lưu được với `loadProfile` và `rampUpSeconds`; config vi phạm allowlist/header bị chặn `400`. | **Đạt** (`CoreFlowTest`) |
+| **TC-03** | UC-02b Scenario Chaining | Bước 1: `GET /demo/echo` trích xuất `token`; Bước 2: `POST /api/target?t={{token}}` | 1. Tạo config có `steps` (2 bước) và xác nhận host.<br>2. Thử chèn `{{host}}` vào scheme/authority URL.<br>3. Chạy execution. | `TargetPolicy` chặn template ở host/scheme; bước 2 nhận được giá trị `token` trích từ JSON bước 1 và không rò rỉ sang iteration khác. | **Đạt** (`CoreFlowTest`) |
+| **TC-04** | UC-03 Mock Data & Schema | JSON Schema hợp lệ + mảng payload đúng/sai schema | 1. Tạo `MockDataSet` qua `POST /api/configs/{id}/mock-data` với payload đúng schema.<br>2. Thử lưu payload thiếu trường bắt buộc. | Payload hợp lệ được lưu và xoay vòng khi chạy (`mockDataSetId` gắn trên execution); payload sai schema trả `400`. | **Đạt** (`CoreFlowTest`) |
+| **TC-05** | UC-04 Thực thi, Early Anomaly & Stop Reason | Target chậm / trả `500`, bật `earlyAnomalyEnabled=true`, `autoStopOnAnomaly=true` | 1. Xác nhận target và start execution.<br>2. Quan sát 3 nhịp đo có `intervalErrorRate` hoặc `intervalP95Ms` vượt ngưỡng.<br>3. Kiểm tra dừng thủ công trên bài test khác. | Hệ thống phát `anomalyWarning` qua STOMP, tự dừng sau 3 chu kỳ bất thường với `stopReason = ANOMALY`; dừng tay ghi `stopReason = USER`. | **Đạt** (`CoreFlowTest`) |
+| **TC-06** | UC-04b Tải 300 VUs & STOMP SLA | Target echo `15ms`, 50/100/300 VUs, 10s, 500 RPS | 1. Chạy `node scripts/benchmark.mjs` kết nối STOMP `/user/queue/executions/{id}`.<br>2. Đo `receivedAt - sampleTime`. | Engine hoàn tất cả 3 mức tải; tỷ lệ lỗi < 0,1%; độ trễ cập nhật STOMP p95 < 2000 ms. | **Đạt** (`p95UpdateMs = 16–27 ms`) |
+| **TC-07** | UC-05 Lịch sử, Báo cáo, CSV & So sánh | 2 execution đã hoàn tất (`Baseline`, `Current`) | 1. Mở lịch sử, lọc theo tên/trạng thái.<br>2. Xuất CSV.<br>3. Chọn 2 execution để đối chiếu. | CSV có đủ cột `p99_latency_ms`, `max_latency_ms`, `interval_p95_ms`, `interval_error_rate`; UI tính đúng chênh lệch `Throughput`, `p95`, `p99`, `Error Rate`. | **Đạt** (`CoreFlowTest`, `reportModel.test.js`) |
+| **TC-08** | UC-AI Prompt-to-Test, Mock Data & AI Explainer | Prompt tiếng Việt, JSON Schema, hoặc log execution có `http429`/`http5xx`/`p99` cao | 1. Gọi `/api/ai/parse-prompt` và `/api/ai/generate-mockdata`.<br>2. Gọi AI Explainer > 10 lần/phút/user.<br>3. Gọi `/analyze-log` với lỗi `429` và spike `intervalP95Ms`. | Lượt gọi thứ 11 trả `429 AI_RATE_LIMITED`; báo cáo AI trả đủ `bottlenecks`, `recommendations`, `findings`; lỗi HTTP 429/503 từ LLM có retry/backoff. | **Đạt** (`CoreFlowTest`, `test_ai_features.py`) |
+
+## Mốc kiểm chứng baseline (14/10/2026)
+
+Trên bản baseline trước khi tích hợp NVIDIA Cloud AI, V5 và V6, toàn bộ 14 backend tests (H2 & PostgreSQL 15), Flyway V1+V2, ESLint, Vite build, Docker Compose và Playwright E2E đã pass trên môi trường cục bộ (`loadsense-validation`). Đối với CI (`.github/workflows/ci.yml`), workflow chạy 3 job: `core-engine`, `frontend` (`node --test`, `lint`, `build`) và `ai-contract` (`unittest`).

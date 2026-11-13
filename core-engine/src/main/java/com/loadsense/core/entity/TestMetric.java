@@ -17,6 +17,10 @@ public class TestMetric {
     @Column(name="avg_latency_ms", nullable=false) public double avgLatencyMs;
     @Column(name="p50_latency_ms", nullable=false) public double p50LatencyMs;
     @Column(name="p95_latency_ms", nullable=false) public double p95LatencyMs;
+    @Column(name="p99_latency_ms", nullable=false) public double p99LatencyMs;
+    @Column(name="max_latency_ms", nullable=false) public double maxLatencyMs;
+    @Column(name="interval_p95_ms", nullable=false) public double intervalP95Ms;
+    @Column(name="interval_error_rate", nullable=false) public double intervalErrorRate;
     @Column(name="error_rate", nullable=false) public double errorRate;
     @Column(name="active_users", nullable=false) public int activeUsers;
 }

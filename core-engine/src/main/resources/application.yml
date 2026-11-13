@@ -24,3 +24,4 @@ loadsense:
   demo-enabled: ${DEMO_ENABLED:true}
   ai-service-url: ${AI_SERVICE_URL:}
   ai-service-token: ${AI_SERVICE_TOKEN:}
+  ai-rate-limit-per-minute: ${AI_RATE_LIMIT_PER_MINUTE:10}

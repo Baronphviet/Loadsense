@@ -13,5 +13,7 @@ public class TestReport {
     @Column(name="assessment", nullable=false) public String assessment;
     @Column(name="ai_status", nullable=false) public String aiStatus = "DEFERRED";
     @Column(name="ai_analysis", columnDefinition="TEXT") public String aiAnalysis;
+    @Column(name="ai_model", length=120) public String aiModel;
+    @Column(name="ai_analyzed_at") public Instant aiAnalyzedAt;
     @Column(name="created_at", nullable=false) public Instant createdAt = Instant.now();
 }

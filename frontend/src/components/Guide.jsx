@@ -43,18 +43,18 @@ export default function Guide({ initialSection }) {
         <span className="guide-section-number">01 / BẮT ĐẦU</span><h2>Bài test đầu tiên</h2>
         <p>Thử với API demo có sẵn trong LoadSense. Chỉ kiểm thử API mà bạn có quyền sử dụng và bắt đầu với tải thấp.</p>
         <ol className="guide-steps">
-          <li><strong>Tạo cấu hình.</strong> Vào <b>Bài kiểm thử → Tạo cấu hình</b>, đặt tên và chọn GET. Nhập URL <code>http://core-engine:8080/demo/echo</code>.</li>
+          <li><strong>Quét URL tự động hoặc tạo cấu hình tải.</strong> Vào <b>Auto Test Suite</b> dán URL web/API để crawl đa tầng (tối đa 100 Test Cases), hoặc vào <b>Kiểm thử chịu tải → ＋ Tạo cấu hình tải</b>. Nhập URL <code>http://core-engine:8080/demo/echo</code>.</li>
           <li><strong>Đặt tải nhỏ.</strong> Chọn 1 người dùng ảo, thời lượng 10 giây, giới hạn 1 RPS và timeout 5000 ms. Lưu cấu hình.</li>
           <li><strong>Chạy bài test.</strong> Chọn <b>Chạy test</b>, đọc và xác nhận quyền kiểm thử, rồi chọn <b>Bắt đầu kiểm thử</b>.</li>
-          <li><strong>Xem kết quả.</strong> Chờ hoàn thành, xem số request, tỷ lệ lỗi và độ trễ. Một lần chạy ngắn chỉ giúp kiểm tra kết nối, chưa đủ để kết luận về hiệu năng.</li>
+          <li><strong>Xem kết quả.</strong> Theo dõi biểu đồ WebSocket ngay tại <b>Kiểm thử chịu tải</b>, sau đó xem lại & so sánh tại <b>Lịch sử & báo cáo</b>.</li>
         </ol>
         <div className="guide-callout"><strong>Chưa biết endpoint?</strong> AI có thể đề xuất, nhưng có thể đoán sai. Hãy kiểm tra tài liệu của API và quyền kiểm thử trước khi chạy.</div>
       </section>
       <section className="guide-section" id="guide-prompt" tabIndex={-1}>
-        <span className="guide-section-number">02 / AI WORKSPACE</span><h2>Tạo cấu hình bằng lời mô tả</h2>
-        <p>Trong <b>AI Workspace</b>, mô tả URL, method và mức tải mong muốn. Ví dụ:</p>
+        <span className="guide-section-number">02 / AI PROMPT-TO-TEST</span><h2>Tạo cấu hình bằng lời mô tả</h2>
+        <p>Ở thanh <b>AI Prompt-to-Test</b> trên đầu mục <b>Kiểm thử chịu tải</b>, mô tả URL, method và mức tải mong muốn. Ví dụ:</p>
         <blockquote>Kiểm thử GET http://core-engine:8080/demo/echo với 1 người dùng trong 10 giây, tối đa 1 request mỗi giây, timeout 5000 ms.</blockquote>
-        <p>Chọn <b>Tạo đề xuất</b>, kiểm tra cảnh báo và thông số, rồi chọn <b>Duyệt và chỉnh sửa</b> trước khi lưu. Prompt được gửi tới NVIDIA: không nhập mật khẩu, token hay dữ liệu bí mật.</p>
+        <p>Chọn <b>Sinh cấu hình AI</b>, kiểm tra cảnh báo và thông số, rồi chọn <b>Duyệt và chỉnh sửa</b> trước khi lưu. Prompt được gửi tới nhà cung cấp AI đã cấu hình: không nhập mật khẩu, token hay dữ liệu bí mật.</p>
       </section>
       <section className="guide-section" id="guide-mock-data" tabIndex={-1}>
         <span className="guide-section-number">03 / DỮ LIỆU</span><h2>Sinh dữ liệu mẫu</h2>
@@ -64,7 +64,7 @@ export default function Guide({ initialSection }) {
       </section>
       <section className="guide-section" id="guide-run" tabIndex={-1}>
         <span className="guide-section-number">04 / THỰC HÀNH</span><h2>Chạy và dừng test</h2>
-        <p>Chọn <b>Chạy test</b> trên cấu hình, chọn dữ liệu nếu cần và xác nhận quyền kiểm thử trước mỗi lần chạy. Theo dõi tiến trình trong Tổng quan. Nếu cần dừng sớm, chọn <b>Dừng test</b>; kết quả lúc đó chỉ phản ánh phần đã chạy.</p>
+        <p>Chọn <b>Chạy test</b> trên cấu hình trong mục <b>Kiểm thử chịu tải</b>, chọn dữ liệu nếu cần và xác nhận quyền kiểm thử trước mỗi lần chạy. Biểu đồ realtime sẽ hiển thị ngay phía trên. Nếu cần dừng sớm, chọn <b>Dừng test</b>.</p>
         <p>Với host công khai mới, xác nhận quyền kiểm thử trong biểu mẫu cấu hình trước khi lưu. Host nội bộ vẫn cần được quản trị viên cho phép.</p>
       </section>
       <section className="guide-section" id="guide-results" tabIndex={-1}>
